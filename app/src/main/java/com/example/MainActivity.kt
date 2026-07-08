@@ -257,11 +257,11 @@ fun VideoHubBottomNavigation(
     onTabSelected: (String) -> Unit
 ) {
     NavigationBar(
-        containerColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         modifier = Modifier
             .navigationBarsPadding()
-            .border(width = 0.5.dp, color = Color(0xFFE1E2E9))
+            .border(width = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
     ) {
         val items = listOf(
             NavigationTabItem("Home", Icons.Filled.Home, Icons.Outlined.Home, "tab_home"),
@@ -289,11 +289,11 @@ fun VideoHubBottomNavigation(
                     ) 
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFF001D36),
-                    selectedTextColor = Color(0xFF001D36),
-                    unselectedIconColor = Color(0xFF44474E),
-                    unselectedTextColor = Color(0xFF44474E),
-                    indicatorColor = Color(0xFFD3E4FF)
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
                 ),
                 modifier = Modifier.testTag(item.testTag)
             )
@@ -326,7 +326,16 @@ fun HomeScreen(viewModel: VideoHubViewModel) {
             onCategorySelected = { viewModel.selectCategory(it) }
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // VidMate Trending Hero Banner Carousel
+        TrendingBannerCarousel(onBannerClick = { query ->
+            viewModel.updateSearchQuery(query)
+            viewModel.searchOrAskAi(query)
+            viewModel.selectBottomTab("Explore")
+        })
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Quick Access Sites Section
         Text(
@@ -444,6 +453,129 @@ fun CategoryTabs(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+    }
+}
+
+data class TrendingBanner(
+    val title: String,
+    val subtitle: String,
+    val tag: String,
+    val gradient: Brush,
+    val query: String
+)
+
+@Composable
+fun TrendingBannerCarousel(onBannerClick: (String) -> Unit) {
+    var currentPage by remember { mutableStateOf(0) }
+    
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(4000L)
+            currentPage = (currentPage + 1) % 3
+        }
+    }
+    
+    val banners = listOf(
+        TrendingBanner(
+            title = "Viral Beats & Remixes",
+            subtitle = "TikTok & SoundCloud Top Hits",
+            tag = "HOT DOWNLOADS",
+            gradient = Brush.linearGradient(colors = listOf(Color(0xFFFF416C), Color(0xFFFF4B2B))),
+            query = "Lofi Focus Beats"
+        ),
+        TrendingBanner(
+            title = "Chill Lofi Study Mixes",
+            subtitle = "Relax your mind, stay productive",
+            tag = "TRENDING NOW",
+            gradient = Brush.linearGradient(colors = listOf(Color(0xFFF12711), Color(0xFFF5AF19))),
+            query = "Epic Synthwave Mix"
+        ),
+        TrendingBanner(
+            title = "Cinematic Drone Reels",
+            subtitle = "Explore stunning HD scenic landscapes",
+            tag = "FREE HD DOWNLOADS",
+            gradient = Brush.linearGradient(colors = listOf(Color(0xFF11998E), Color(0xFF38EF7D))),
+            query = "Beautiful Drone Footage"
+        )
+    )
+    
+    val currentBanner = banners[currentPage]
+    
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .clickable { onBannerClick(currentBanner.query) }
+            .shadow(2.dp, RoundedCornerShape(16.dp)),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(currentBanner.gradient)
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.align(Alignment.CenterStart),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = currentBanner.tag,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = currentBanner.title,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = currentBanner.subtitle,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.15f),
+                modifier = Modifier
+                    .size(90.dp)
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 10.dp)
+            )
+            
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                banners.forEachIndexed { index, _ ->
+                    Box(
+                        modifier = Modifier
+                            .size(if (currentPage == index) 12.dp else 6.dp, 6.dp)
+                            .background(
+                                color = if (currentPage == index) Color.White else Color.White.copy(alpha = 0.5f),
+                                shape = CircleShape
+                            )
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -589,18 +721,18 @@ fun MediaDownloadCard(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Download Action Button (Tailwind styled bg-[#D3E4FF] text-[#001D36])
+            // Download Action Button
             IconButton(
                 onClick = onDownloadClick,
                 modifier = Modifier
                     .size(40.dp)
-                    .background(Color(0xFFD3E4FF), CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
                     .testTag("download_button_${item.title.replace(" ", "_")}")
             ) {
                 Icon(
                     imageVector = Icons.Default.Download,
                     contentDescription = "Download",
-                    tint = Color(0xFF001D36),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -1113,7 +1245,7 @@ fun MeScreen(viewModel: VideoHubViewModel) {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "VideoHub Explorer Pro",
+                        text = "VidMate Pro Explorer",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1207,7 +1339,7 @@ fun MeScreen(viewModel: VideoHubViewModel) {
 
         // About Block
         Text(
-            text = "About VidMate VideoHub",
+            text = "About VidMate Pro",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1215,7 +1347,7 @@ fun MeScreen(viewModel: VideoHubViewModel) {
             textAlign = TextAlign.Center
         )
         Text(
-            text = "VideoHub crawls free-to-use streams from publicly indexed sites. Downloading copyright material without authorization is strictly prohibited.",
+            text = "VidMate crawls free-to-use streams from publicly indexed sites. Downloading copyright material without authorization is strictly prohibited.",
             fontSize = 10.sp,
             lineHeight = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),

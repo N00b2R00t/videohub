@@ -2,25 +2,25 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Professional Polish Color Theme (Material 3 aligned)
-val PolishedPrimary = Color(0xFF0061A4)
-val PolishedOnPrimary = Color(0xFFFFFFFF)
-val PolishedPrimaryContainer = Color(0xFFD3E4FF)
-val PolishedOnPrimaryContainer = Color(0xFF001D36)
+// VidMate Signature Energetic Color Theme (Warm Red-Orange)
+val VidMatePrimary = Color(0xFFFF3D00) // Vibrant orange-red
+val VidMateOnPrimary = Color(0xFFFFFFFF)
+val VidMatePrimaryContainer = Color(0xFFFFEBE7)
+val VidMateOnPrimaryContainer = Color(0xFF4B0A00)
 
-val PolishedSecondary = Color(0xFF535F70)
-val PolishedOnSecondary = Color(0xFFFFFFFF)
-val PolishedSecondaryContainer = Color(0xFFD7E3F7)
-val PolishedOnSecondaryContainer = Color(0xFF101C2B)
+val VidMateSecondary = Color(0xFF7C534B)
+val VidMateOnSecondary = Color(0xFFFFFFFF)
+val VidMateSecondaryContainer = Color(0xFFFFDBD4)
+val VidMateOnSecondaryContainer = Color(0xFF30120B)
 
-val PolishedBackground = Color(0xFFF7F9FC)
-val PolishedOnBackground = Color(0xFF1A1C1E)
-val PolishedSurface = Color(0xFFFFFFFF)
-val PolishedOnSurface = Color(0xFF1A1C1E)
-val PolishedSurfaceVariant = Color(0xFFE9EEF6)
-val PolishedOnSurfaceVariant = Color(0xFF44474E)
-val PolishedOutline = Color(0xFFC4C7CF)
-val PolishedOutlineVariant = Color(0xFFE1E2E9)
+val VidMateBackground = Color(0xFFFFFBF9)
+val VidMateOnBackground = Color(0xFF251A17)
+val VidMateSurface = Color(0xFFFFFFFF)
+val VidMateOnSurface = Color(0xFF251A17)
+val VidMateSurfaceVariant = Color(0xFFFBECE9)
+val VidMateOnSurfaceVariant = Color(0xFF534340)
+val VidMateOutline = Color(0xFFE5CECA)
+val VidMateOutlineVariant = Color(0xFFF5DDDA)
 
 // Card category accents
 val CardMusicContainer = Color(0xFFFFDAD6)
@@ -31,4 +31,3 @@ val CardSocialContainer = Color(0xFFE8DEF8)
 val CardSocialOnContainer = Color(0xFF1D192B)
 val CardFeaturedContainer = Color(0xFFE8F5E9)
 val CardFeaturedOnContainer = Color(0xFF1B5E20)
-
