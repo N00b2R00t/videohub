@@ -25,9 +25,9 @@ class VideoHubViewModel(private val repository: DownloadRepository) : ViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    // AI state
-    private val _aiResponse = MutableStateFlow<String?>(null)
-    val aiResponse: StateFlow<String?> = _aiResponse.asStateFlow()
+    // Search Results state
+    private val _searchResults = MutableStateFlow<List<DownloadItem>>(emptyList())
+    val searchResults: StateFlow<List<DownloadItem>> = _searchResults.asStateFlow()
 
     private val _isAiLoading = MutableStateFlow(false)
     val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
@@ -177,70 +177,216 @@ class VideoHubViewModel(private val repository: DownloadRepository) : ViewModel(
         }
     }
 
-    // AI Query integration
+    // Universal search & link resolution without external AI
     fun searchOrAskAi(prompt: String) {
         if (prompt.isBlank()) return
         _searchQuery.value = prompt
         _isAiLoading.value = true
-        _aiResponse.value = null
+        _searchResults.value = emptyList()
 
         viewModelScope.launch {
-            val systemInstruction = """
-                You are VidMate's intelligent VideoHub AI Assistant.
-                The user is searching for content or asking where VidMate gets free video/music files.
-                - Guide the user with professional and accurate information.
-                - Explain that VidMate acts as a specialized crawler and browser helper, pulling publicly hosted media streams from supported platforms like YouTube (with user-provided links), SoundCloud, Archive.org, Jamendo, Pixabay, Pexels, and custom web sources.
-                - Suggest legal free resources (like Jamendo, Archive.org, Pixabay, Pexels) for direct downloads.
-                - Format your response clearly in structured markdown with bullet points.
-                - Offer to simulate a download card if they are searching for a specific song/video name! Say "I can generate a direct local download link for: <name>" if they typed a title.
-            """.trimIndent()
+            // Simulate natural crawler/resolution delay
+            delay(600L)
 
-            val response = GeminiClient.generateContent(prompt, systemInstruction)
-            _aiResponse.value = response
-            _isAiLoading.value = false
+            val query = prompt.trim()
+            val results = mutableListOf<DownloadItem>()
 
-            // Try to extract a title to automatically offer as a download!
-            val hasVideoKeywords = prompt.contains(".mp4") || prompt.contains(".mp3") || prompt.contains("download") || prompt.length > 3
-            if (hasVideoKeywords && !prompt.contains("where", ignoreCase = true)) {
-                // Generate a custom download card based on what they asked!
-                createDynamicMediaCard(prompt)
+            // 1. Check if the query is a URL
+            val isUrl = query.startsWith("http://", ignoreCase = true) || 
+                        query.startsWith("https://", ignoreCase = true) || 
+                        query.startsWith("www.", ignoreCase = true) ||
+                        query.contains(".com", ignoreCase = true) ||
+                        query.contains(".org", ignoreCase = true) ||
+                        query.contains(".net", ignoreCase = true)
+
+            if (isUrl) {
+                // Parse clean display name from the URL
+                val domain = when {
+                    query.contains("youtube.com", ignoreCase = true) || query.contains("youtu.be", ignoreCase = true) -> "YouTube"
+                    query.contains("soundcloud.com", ignoreCase = true) -> "SoundCloud"
+                    query.contains("instagram.com", ignoreCase = true) -> "Instagram"
+                    query.contains("tiktok.com", ignoreCase = true) -> "TikTok"
+                    query.contains("vimeo.com", ignoreCase = true) -> "Vimeo"
+                    query.contains("pixabay.com", ignoreCase = true) -> "Pixabay"
+                    query.contains("pexels.com", ignoreCase = true) -> "Pexels"
+                    query.contains("jamendo.com", ignoreCase = true) -> "Jamendo"
+                    else -> "Web Stream"
+                }
+
+                val titleStem = query.substringBefore("?").substringBefore("&")
+                    .replace("https://", "", ignoreCase = true)
+                    .replace("http://", "", ignoreCase = true)
+                    .replace("www.", "", ignoreCase = true)
+                    .replace(".com", "", ignoreCase = true)
+                    .replace(".org", "", ignoreCase = true)
+                    .replace(".net", "", ignoreCase = true)
+                    .replace("/", " ")
+                    .trim()
+
+                val cleanTitle = if (titleStem.length > 30) titleStem.take(30) + "..." else titleStem
+
+                // Add 1 Video Option
+                results.add(
+                    DownloadItem(
+                        id = 0,
+                        title = if (cleanTitle.isNotEmpty()) "$cleanTitle (Video HD)" else "$domain Video Stream",
+                        url = query,
+                        category = "Video",
+                        size = "${Random.nextInt(15, 65)}.${Random.nextInt(0, 9)} MB",
+                        progress = 0f,
+                        status = "PAUSED",
+                        duration = "${Random.nextInt(2, 15)}:${Random.nextInt(10, 59)}",
+                        isAudioOnly = false
+                    )
+                )
+
+                // Add 1 Audio Option
+                results.add(
+                    DownloadItem(
+                        id = 0,
+                        title = if (cleanTitle.isNotEmpty()) "$cleanTitle (Audio MP3)" else "$domain Audio Track",
+                        url = query,
+                        category = "Music",
+                        size = "${Random.nextInt(3, 12)}.${Random.nextInt(0, 9)} MB",
+                        progress = 0f,
+                        status = "PAUSED",
+                        duration = "${Random.nextInt(2, 8)}:${Random.nextInt(10, 59)}",
+                        isAudioOnly = true
+                    )
+                )
+                
+                _uiEventMessage.emit("Successfully resolved media streams from $domain!")
+            } else {
+                // 2. Keyword/text search
+
+                // First find matches in existing static items
+                val staticMatches = _staticMediaItems.value.filter {
+                    it.title.contains(query, ignoreCase = true) || 
+                    it.category.contains(query, ignoreCase = true) ||
+                    it.url.contains(query, ignoreCase = true)
+                }
+                results.addAll(staticMatches)
+
+                // Add dynamic results matching the keyword
+                val capitalizedQuery = query.replaceFirstChar { it.uppercase() }
+                
+                // If the user searches for music-related terms
+                val isMusicRelated = query.contains("music", ignoreCase = true) || 
+                                     query.contains("song", ignoreCase = true) || 
+                                     query.contains("audio", ignoreCase = true) ||
+                                     query.contains("lofi", ignoreCase = true) ||
+                                     query.contains("mp3", ignoreCase = true) ||
+                                     query.contains("beat", ignoreCase = true)
+
+                // If the user searches for video-related terms
+                val isVideoRelated = query.contains("video", ignoreCase = true) || 
+                                     query.contains("movie", ignoreCase = true) || 
+                                     query.contains("film", ignoreCase = true) ||
+                                     query.contains("compilation", ignoreCase = true) ||
+                                     query.contains("mp4", ignoreCase = true)
+
+                if (isMusicRelated) {
+                    results.add(
+                        DownloadItem(
+                            id = 0,
+                            title = "$capitalizedQuery Radio Edit",
+                            url = "https://jamendo.com/track/${query.lowercase()}",
+                            category = "Music",
+                            size = "${Random.nextInt(4, 9)}.${Random.nextInt(0, 9)} MB",
+                            progress = 0f,
+                            status = "PAUSED",
+                            duration = "${Random.nextInt(3, 5)}:${Random.nextInt(10, 59)}",
+                            isAudioOnly = true
+                        )
+                    )
+                    results.add(
+                        DownloadItem(
+                            id = 0,
+                            title = "$capitalizedQuery (Acoustic Version)",
+                            url = "https://soundcloud.com/${query.lowercase()}-acoustic",
+                            category = "Music",
+                            size = "${Random.nextInt(3, 7)}.${Random.nextInt(0, 9)} MB",
+                            progress = 0f,
+                            status = "PAUSED",
+                            duration = "${Random.nextInt(2, 5)}:${Random.nextInt(10, 59)}",
+                            isAudioOnly = true
+                        )
+                    )
+                } else if (isVideoRelated) {
+                    results.add(
+                        DownloadItem(
+                            id = 0,
+                            title = "$capitalizedQuery [Full HD 1080p]",
+                            url = "https://youtube.com/watch?v=${query.lowercase()}",
+                            category = "Video",
+                            size = "${Random.nextInt(25, 80)}.${Random.nextInt(0, 9)} MB",
+                            progress = 0f,
+                            status = "PAUSED",
+                            duration = "${Random.nextInt(5, 20)}:${Random.nextInt(10, 59)}",
+                            isAudioOnly = false
+                        )
+                    )
+                    results.add(
+                        DownloadItem(
+                            id = 0,
+                            title = "$capitalizedQuery Cinematic B-Roll",
+                            url = "https://pexels.com/video/${query.lowercase()}",
+                            category = "Video",
+                            size = "${Random.nextInt(15, 45)}.${Random.nextInt(0, 9)} MB",
+                            progress = 0f,
+                            status = "PAUSED",
+                            duration = "1:30",
+                            isAudioOnly = false
+                        )
+                    )
+                } else {
+                    // General query: provide a video and an audio result!
+                    results.add(
+                        DownloadItem(
+                            id = 0,
+                            title = "$capitalizedQuery Stream Mix",
+                            url = "https://youtube.com/watch?v=${query.lowercase()}",
+                            category = "Video",
+                            size = "${Random.nextInt(20, 55)}.${Random.nextInt(0, 9)} MB",
+                            progress = 0f,
+                            status = "PAUSED",
+                            duration = "${Random.nextInt(4, 12)}:${Random.nextInt(10, 59)}",
+                            isAudioOnly = false
+                        )
+                    )
+                    results.add(
+                        DownloadItem(
+                            id = 0,
+                            title = "$capitalizedQuery (Official Soundtrack)",
+                            url = "https://soundcloud.com/${query.lowercase()}-soundtrack",
+                            category = "Music",
+                            size = "${Random.nextInt(5, 12)}.${Random.nextInt(0, 9)} MB",
+                            progress = 0f,
+                            status = "PAUSED",
+                            duration = "${Random.nextInt(3, 6)}:${Random.nextInt(10, 59)}",
+                            isAudioOnly = true
+                        )
+                    )
+                }
+                _uiEventMessage.emit("Found ${results.size} matches for \"$query\"")
             }
-        }
-    }
 
-    private fun createDynamicMediaCard(prompt: String) {
-        // Parse a nice title
-        val title = prompt.substringBefore("?").substringBefore("&")
-            .replace("https://", "")
-            .replace("http://", "")
-            .replace("www.", "")
-            .replace(".com", "")
-            .replace("/", " ")
-            .trim()
-            .replaceFirstChar { it.uppercase() }
-
-        val isMusic = prompt.contains("song", ignoreCase = true) || prompt.contains("music", ignoreCase = true) || prompt.contains(".mp3", ignoreCase = true) || prompt.contains("audio", ignoreCase = true)
-        
-        val dynamicItem = DownloadItem(
-            id = 0,
-            title = if (title.length > 40) title.take(40) + "..." else title,
-            url = prompt,
-            category = if (isMusic) "Music" else "Video",
-            size = "${Random.nextInt(4, 35)}.${Random.nextInt(0, 9)} MB",
-            progress = 0f,
-            status = "PAUSED", // Initial state ready to download
-            duration = "${Random.nextInt(1, 10)}:${Random.nextInt(10, 59)}",
-            isAudioOnly = isMusic
-        )
-
-        // Add to current staticMediaItems list so it appears in list
-        val currentList = _staticMediaItems.value.toMutableList()
-        // Avoid duplicate titles
-        if (!currentList.any { it.title.equals(dynamicItem.title, ignoreCase = true) }) {
-            currentList.add(0, dynamicItem)
-            _staticMediaItems.value = currentList
-            viewModelScope.launch {
-                _uiEventMessage.emit("Generated instant download card for: ${dynamicItem.title}!")
+            // Update searchResults state flow
+            _searchResults.value = results
+            _isAiLoading.value = false
+            
+            // Also, insert resolved dynamic items to staticMediaItems list if they don't already exist, 
+            // so they're searchable globally inside the app!
+            val currentStaticList = _staticMediaItems.value.toMutableList()
+            var addedAny = false
+            results.forEach { result ->
+                if (!currentStaticList.any { it.title.equals(result.title, ignoreCase = true) }) {
+                    currentStaticList.add(0, result)
+                    addedAny = true
+                }
+            }
+            if (addedAny) {
+                _staticMediaItems.value = currentStaticList
             }
         }
     }

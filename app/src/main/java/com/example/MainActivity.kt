@@ -213,7 +213,7 @@ fun VideoHubHeader(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 
-                // Smart AI trigger button
+                // Search resolution trigger button
                 IconButton(
                     onClick = { onSearchTriggered(searchQuery) },
                     modifier = Modifier
@@ -222,8 +222,8 @@ fun VideoHubHeader(
                         .testTag("ask_ai_button")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Ask AI",
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -335,8 +335,9 @@ fun HomeScreen(viewModel: VideoHubViewModel) {
         )
         Spacer(modifier = Modifier.height(12.dp))
         QuickAccessGrid(onSiteClick = { siteQuery ->
-            viewModel.updateSearchQuery(siteQuery)
-            viewModel.searchOrAskAi("Where can I find free resources on $siteQuery?")
+            val simulatedUrl = "https://www.${siteQuery.lowercase()}.com"
+            viewModel.updateSearchQuery(simulatedUrl)
+            viewModel.searchOrAskAi(simulatedUrl)
             viewModel.selectBottomTab("Explore")
         })
 
@@ -608,17 +609,17 @@ fun MediaDownloadCard(
 // EXPLORE / SMART GEMINI ASSISTANT SCREEN
 @Composable
 fun ExploreScreen(viewModel: VideoHubViewModel) {
-    val aiResponse by viewModel.aiResponse.collectAsStateWithLifecycle()
-    val isAiLoading by viewModel.isAiLoading.collectAsStateWithLifecycle()
+    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val isSearching by viewModel.isAiLoading.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
 
     val suggestions = listOf(
-        "Where does VidMate get music & videos?",
-        "Show legal free stock video sites",
-        "Explain direct links in VideoHub",
-        "Suggest instrumental lofi beats"
+        "Lofi Focus Beats",
+        "https://youtube.com/watch?v=chill",
+        "Epic Synthwave Mix",
+        "Ocean Waves Relaxation"
     )
 
     Column(
@@ -627,44 +628,44 @@ fun ExploreScreen(viewModel: VideoHubViewModel) {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        // AI Hero Title
+        // Search & Discover Title
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.Default.AutoAwesome,
+                imageVector = Icons.Default.Explore,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(28.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Smart Search Hub",
+                text = "Universal Media Explorer",
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
         Text(
-            text = "Ask our Gemini AI to discover free music, videos, and source downloads instantly.",
+            text = "Paste any media links (YouTube, SoundCloud, TikTok etc.) or enter video/music keywords to grab download sources instantly.",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
         )
 
-        // Text input for Custom AI request
+        // Text input for Custom Search request
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.updateSearchQuery(it) },
-            label = { Text("Ask anything, paste URLs or video names...") },
+            label = { Text("Search music, video, or paste URL...") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             trailingIcon = {
                 IconButton(
                     onClick = { viewModel.searchOrAskAi(searchQuery) },
-                    enabled = searchQuery.isNotBlank() && !isAiLoading
+                    enabled = searchQuery.isNotBlank() && !isSearching
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
-                        contentDescription = "Ask",
+                        contentDescription = "Search",
                         tint = if (searchQuery.isNotBlank()) MaterialTheme.colorScheme.primary else Color.Gray
                     )
                 }
@@ -675,7 +676,7 @@ fun ExploreScreen(viewModel: VideoHubViewModel) {
 
         // Preset quick suggestions
         Text(
-            text = "Suggested Questions",
+            text = "Trending Searches",
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurface
@@ -706,10 +707,10 @@ fun ExploreScreen(viewModel: VideoHubViewModel) {
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // AI Response Panel
-        if (isAiLoading) {
+        // Search Results Panel
+        if (isSearching) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -722,58 +723,44 @@ fun ExploreScreen(viewModel: VideoHubViewModel) {
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "VideoHub AI is searching resources...",
+                        text = "Crawling resources and resolving media links...",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-        } else if (aiResponse != null) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color.Green, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Gemini Response",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        IconButton(
-                            onClick = { viewModel.updateSearchQuery("") },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = aiResponse!!,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+        } else if (searchResults.isNotEmpty()) {
+            Text(
+                text = "Grab Discovered Streams",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                searchResults.forEach { item ->
+                    MediaDownloadCard(
+                        item = item,
+                        onDownloadClick = { viewModel.startDownload(item) }
                     )
                 }
+            }
+        } else if (searchQuery.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No results found for \"$searchQuery\". Try searching another term or paste a valid link!",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }
