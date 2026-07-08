@@ -1,0 +1,6 @@
+{
+  "name": "VideoHub",
+  "description": "A professional, offline-first media browser and downloader utility, styled with the Professional Polish theme, acting as a smart vidmate VideoHub.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
