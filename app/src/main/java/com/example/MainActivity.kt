@@ -311,8 +311,12 @@ data class NavigationTabItem(
 // HOME SCREEN COMPOSABLE
 @Composable
 fun HomeScreen(viewModel: VideoHubViewModel) {
+    val context = LocalContext.current
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val filteredMediaItems by viewModel.filteredMediaItems.collectAsStateWithLifecycle()
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
 
     Column(
         modifier = Modifier
@@ -398,7 +402,11 @@ fun HomeScreen(viewModel: VideoHubViewModel) {
                 filteredMediaItems.forEach { item ->
                     MediaDownloadCard(
                         item = item,
-                        onDownloadClick = { viewModel.startDownload(item) }
+                        onDownloadClick = {
+                            checkAndRequestPermissions(context, permissionLauncher) {
+                                viewModel.startDownload(context, item)
+                            }
+                        }
                     )
                 }
             }
@@ -743,9 +751,13 @@ fun MediaDownloadCard(
 // EXPLORE / SMART GEMINI ASSISTANT SCREEN
 @Composable
 fun ExploreScreen(viewModel: VideoHubViewModel) {
+    val context = LocalContext.current
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isAiLoading.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
 
     val scope = rememberCoroutineScope()
 
@@ -877,7 +889,11 @@ fun ExploreScreen(viewModel: VideoHubViewModel) {
                 searchResults.forEach { item ->
                     MediaDownloadCard(
                         item = item,
-                        onDownloadClick = { viewModel.startDownload(item) }
+                        onDownloadClick = {
+                            checkAndRequestPermissions(context, permissionLauncher) {
+                                viewModel.startDownload(context, item)
+                            }
+                        }
                     )
                 }
             }
@@ -907,6 +923,7 @@ fun FilesScreen(
     viewModel: VideoHubViewModel,
     onPlayItem: (DownloadItem) -> Unit
 ) {
+    val context = LocalContext.current
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     var selectedSubTab by remember { mutableStateOf("Downloading") }
 
@@ -1031,7 +1048,7 @@ fun FilesScreen(
                 items(currentList, key = { it.id }) { item ->
                     FileDownloadItemRow(
                         item = item,
-                        onTogglePauseResume = { viewModel.togglePauseResumeDownload(item) },
+                        onTogglePauseResume = { viewModel.togglePauseResumeDownload(context, item) },
                         onDelete = { viewModel.deleteDownload(item) },
                         onPlay = { onPlayItem(item) }
                     )
@@ -1245,7 +1262,7 @@ fun MeScreen(viewModel: VideoHubViewModel) {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "VidMate Pro Explorer",
+                        text = "VideoHub Pro Explorer",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1339,7 +1356,7 @@ fun MeScreen(viewModel: VideoHubViewModel) {
 
         // About Block
         Text(
-            text = "About VidMate Pro",
+            text = "About VideoHub Pro",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1347,7 +1364,7 @@ fun MeScreen(viewModel: VideoHubViewModel) {
             textAlign = TextAlign.Center
         )
         Text(
-            text = "VidMate crawls free-to-use streams from publicly indexed sites. Downloading copyright material without authorization is strictly prohibited.",
+            text = "VideoHub crawls free-to-use streams from publicly indexed sites. Downloading copyright material without authorization is strictly prohibited.",
             fontSize = 10.sp,
             lineHeight = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
@@ -1417,187 +1434,430 @@ fun MediaPlayerDialog(
     item: DownloadItem,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        var isPlaying by remember { mutableStateOf(true) }
-        var playProgress by remember { mutableFloatStateOf(0.0f) }
+    val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(false) }
+    var playProgress by remember { mutableFloatStateOf(0.0f) }
+    var durationText by remember { mutableStateOf(item.duration) }
+    var currentText by remember { mutableStateOf("0:00") }
 
-        // Simulated playback progress
-        LaunchedEffect(isPlaying) {
-            if (isPlaying) {
-                while (playProgress < 1.0f) {
-                    delay(300L)
-                    playProgress = (playProgress + 0.015f).coerceAtMost(1.0f)
+    // Resolve the playable source URL or local path
+    val fileName = "${item.title.replace("[^a-zA-Z0-9]".toRegex(), "_")}.${if (item.isAudioOnly) "mp3" else "mp4"}"
+    val localFile = java.io.File(
+        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+        fileName
+    )
+    val mediaUri = if (localFile.exists()) {
+        android.net.Uri.fromFile(localFile)
+    } else {
+        // Fallback playable URL
+        val playableUrl = when {
+            item.url.contains("tophits2024") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+            item.url.contains("lofi-beats-focus") -> "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+            item.url.contains("sunset-loop") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+            item.url.contains("funnypets") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+            item.url.contains("cyberpunk-synthwave") -> "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+            item.url.contains("cutekitten") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
+            item.isAudioOnly -> "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+            else -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
+        }
+        android.net.Uri.parse(playableUrl)
+    }
+
+    if (item.isAudioOnly) {
+        // AUDIO PLAYBACK USING MEDIAPLAYER
+        val mediaPlayer = remember { android.media.MediaPlayer() }
+
+        DisposableEffect(mediaUri) {
+            try {
+                mediaPlayer.setDataSource(context, mediaUri)
+                mediaPlayer.prepareAsync()
+                mediaPlayer.setOnPreparedListener { mp ->
+                    mp.start()
+                    isPlaying = true
+                    val durationMs = mp.duration
+                    if (durationMs > 0) {
+                        val totalSec = durationMs / 1000
+                        val min = totalSec / 60
+                        val sec = totalSec % 60
+                        durationText = "$min:${sec.toString().padStart(2, '0')}"
+                    }
                 }
-                isPlaying = false
+                mediaPlayer.setOnCompletionListener {
+                    isPlaying = false
+                    playProgress = 1.0f
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MediaPlayerDialog", "Error playing audio", e)
+            }
+
+            onDispose {
+                try {
+                    mediaPlayer.stop()
+                    mediaPlayer.release()
+                } catch (e: Exception) {
+                    // Ignore
+                }
             }
         }
 
-        // Beautiful infinite rotation animation for CD Disc
-        val infiniteTransition = rememberInfiniteTransition(label = "CD Rotation")
-        val rotationAngle by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "Rotation"
-        )
+        // Periodically update progress slider
+        LaunchedEffect(isPlaying) {
+            while (isPlaying) {
+                delay(500L)
+                try {
+                    val currentMs = mediaPlayer.currentPosition
+                    val durationMs = mediaPlayer.duration
+                    if (durationMs > 0) {
+                        playProgress = currentMs.toFloat() / durationMs
+                        val currentSec = currentMs / 1000
+                        val min = currentSec / 60
+                        val sec = currentSec % 60
+                        currentText = "$min:${sec.toString().padStart(2, '0')}"
+                    }
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        Dialog(onDismissRequest = onDismiss) {
+            // Beautiful infinite rotation animation for CD Disc
+            val infiniteTransition = rememberInfiniteTransition(label = "CD Rotation")
+            val rotationAngle by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 3000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "Rotation"
+            )
+
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                // Header Title
-                Text(
-                    text = "Now Playing",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Beautiful record disc / music waves canvas
-                Box(
-                    modifier = Modifier
-                        .size(160.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF111318)),
-                    contentAlignment = Alignment.Center
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Simulated rotating CD disc
+                    // Header Title
+                    Text(
+                        text = "Now Playing Audio",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Beautiful record disc / music waves canvas
                     Box(
                         modifier = Modifier
-                            .size(150.dp)
-                            .rotate(if (isPlaying) rotationAngle else 0f)
-                            .border(3.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
-                            .padding(12.dp)
-                            .background(Color.Black, CircleShape),
+                            .size(160.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF111318)),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Vinyl lines
+                        // Rotating CD disc
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .border(1.dp, Color.DarkGray, CircleShape)
-                                .padding(16.dp)
+                                .size(150.dp)
+                                .rotate(if (isPlaying) rotationAngle else 0f)
+                                .border(3.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
+                                .padding(12.dp)
+                                .background(Color.Black, CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
+                            // Vinyl lines
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .border(1.dp, Color.DarkGray, CircleShape)
                                     .padding(16.dp)
                             ) {
-                                // Album artwork center
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(
-                                            Brush.linearGradient(
-                                                colors = listOf(
-                                                    MaterialTheme.colorScheme.primaryContainer,
-                                                    MaterialTheme.colorScheme.secondaryContainer
-                                                )
-                                            ),
-                                            CircleShape
-                                        ),
-                                    contentAlignment = Alignment.Center
+                                        .border(1.dp, Color.DarkGray, CircleShape)
+                                        .padding(16.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = if (item.isAudioOnly) Icons.Default.MusicNote else Icons.Default.Movie,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.size(32.dp)
-                                    )
+                                    // Album artwork center
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.linearGradient(
+                                                    colors = listOf(
+                                                        MaterialTheme.colorScheme.primaryContainer,
+                                                        MaterialTheme.colorScheme.secondaryContainer
+                                                    )
+                                                ),
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                // Slider tracking progress
-                Slider(
-                    value = playProgress,
-                    onValueChange = { playProgress = it },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // Helper to get play seconds string
-                    val totalSec = 225 // 3:45 length
-                    val currentSec = (playProgress * totalSec).toInt()
-                    val curMin = currentSec / 60
-                    val curSec = currentSec % 60
-                    Text(
-                        text = "$curMin:${curSec.toString().padStart(2, '0')}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    // Slider tracking progress
+                    Slider(
+                        value = playProgress,
+                        onValueChange = {
+                            playProgress = it
+                            try {
+                                val destMs = (it * mediaPlayer.duration).toInt()
+                                mediaPlayer.seekTo(destMs)
+                            } catch (e: Exception) {}
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    Text(
-                        text = item.duration,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Player Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { playProgress = (playProgress - 0.1f).coerceAtLeast(0f) }) {
-                        Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Rewind", modifier = Modifier.size(28.dp))
-                    }
-                    IconButton(
-                        onClick = { isPlaying = !isPlaying },
-                        modifier = Modifier
-                            .size(52.dp)
-                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(28.dp)
+                        Text(
+                            text = currentText,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = durationText,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { playProgress = (playProgress + 0.1f).coerceAtMost(1f) }) {
-                        Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Forward", modifier = Modifier.size(28.dp))
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Player Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            try {
+                                val pos = (mediaPlayer.currentPosition - 10000).coerceAtLeast(0)
+                                mediaPlayer.seekTo(pos)
+                            } catch (e: Exception) {}
+                        }) {
+                            Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Rewind", modifier = Modifier.size(28.dp))
+                        }
+                        IconButton(
+                            onClick = {
+                                try {
+                                    if (mediaPlayer.isPlaying) {
+                                        mediaPlayer.pause()
+                                        isPlaying = false
+                                    } else {
+                                        mediaPlayer.start()
+                                        isPlaying = true
+                                    }
+                                } catch (e: Exception) {}
+                            },
+                            modifier = Modifier
+                                .size(52.dp)
+                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            try {
+                                val pos = (mediaPlayer.currentPosition + 10000).coerceAtMost(mediaPlayer.duration)
+                                mediaPlayer.seekTo(pos)
+                            } catch (e: Exception) {}
+                        }) {
+                            Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Forward", modifier = Modifier.size(28.dp))
+                        }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                // Close button
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "STOP PLAYBACK", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    // Close button
+                    TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                        Text(text = "STOP PLAYBACK", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
         }
+    } else {
+        // VIDEO PLAYBACK USING VIDEOVIEW
+        var videoViewRef by remember { mutableStateOf<android.widget.VideoView?>(null) }
+
+        Dialog(onDismissRequest = onDismiss) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Now Playing Video",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Real Video View wrapped in AndroidView
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            factory = { ctx ->
+                                android.widget.VideoView(ctx).apply {
+                                    setVideoURI(mediaUri)
+                                    val mediaController = android.widget.MediaController(ctx)
+                                    mediaController.setAnchorView(this)
+                                    setMediaController(mediaController)
+                                    setOnPreparedListener { mp ->
+                                        mp.isLooping = true
+                                        start()
+                                        isPlaying = true
+                                    }
+                                    videoViewRef = this
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Control Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            videoViewRef?.let { vv ->
+                                val pos = (vv.currentPosition - 10000).coerceAtLeast(0)
+                                vv.seekTo(pos)
+                            }
+                        }) {
+                            Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Rewind 10s", modifier = Modifier.size(28.dp))
+                        }
+                        IconButton(
+                            onClick = {
+                                videoViewRef?.let { vv ->
+                                    if (vv.isPlaying) {
+                                        vv.pause()
+                                        isPlaying = false
+                                    } else {
+                                        vv.start()
+                                        isPlaying = true
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(52.dp)
+                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            videoViewRef?.let { vv ->
+                                val pos = (vv.currentPosition + 10000).coerceAtMost(vv.duration)
+                                vv.seekTo(pos)
+                            }
+                        }) {
+                            Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Forward 10s", modifier = Modifier.size(28.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                        Text(text = "STOP PLAYBACK", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// HELPERS FOR STORAGE PERMISSION REQUESTS
+fun checkAndRequestPermissions(
+    context: android.content.Context,
+    launcher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
+    onGranted: () -> Unit
+) {
+    val permissions = mutableListOf<String>()
+    
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        permissions.add(android.Manifest.permission.READ_MEDIA_AUDIO)
+        permissions.add(android.Manifest.permission.READ_MEDIA_VIDEO)
+        permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+    } else {
+        permissions.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        permissions.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    val missingPermissions = permissions.filter {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    if (missingPermissions.isEmpty()) {
+        onGranted()
+    } else {
+        launcher.launch(missingPermissions.toTypedArray())
+        android.widget.Toast.makeText(context, "Requesting permissions for system download and player access...", android.widget.Toast.LENGTH_SHORT).show()
     }
 }

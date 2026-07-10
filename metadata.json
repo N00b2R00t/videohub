@@ -1,6 +1,6 @@
 {
-  "name": "VidMate",
-  "description": "An energetic, offline-first media browser and downloader utility, styled with the VidMate signature theme.",
+  "name": "VideoHub",
+  "description": "An energetic, offline-first media browser and downloader utility, styled with the premium VideoHub signature theme.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

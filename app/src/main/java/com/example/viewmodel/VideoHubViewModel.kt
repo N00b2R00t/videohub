@@ -90,7 +90,7 @@ class VideoHubViewModel(private val repository: DownloadRepository) : ViewModel(
     }
 
     // Direct download action for any item
-    fun startDownload(item: DownloadItem) {
+    fun startDownload(context: android.content.Context, item: DownloadItem) {
         viewModelScope.launch {
             // Check if already downloading or completed
             val existingList = downloads.value
@@ -112,43 +112,115 @@ class VideoHubViewModel(private val repository: DownloadRepository) : ViewModel(
             val insertedId = repository.insertDownload(newItem)
             _uiEventMessage.emit("Starting download: ${item.title}")
 
-            // Start simulated progress background task
-            simulateDownloadProgress(insertedId.toInt())
+            // Start real progress background task
+            startRealDownload(context, insertedId.toInt(), item)
         }
     }
 
-    // Simulate progress updates in DB
-    private fun simulateDownloadProgress(itemId: Int) {
+    private fun startRealDownload(context: android.content.Context, dbId: Int, item: DownloadItem) {
         viewModelScope.launch {
-            var currentProgress = 0.0f
-            while (currentProgress < 1.0f) {
-                delay(if (fastDownloadMode.value) 400L else 800L)
-                val currentItem = repository.getDownloadById(itemId) ?: break
-                
-                // If paused or deleted, cancel simulation
-                if (currentItem.status == "PAUSED" || currentItem.status == "FAILED") {
-                    break
+            try {
+                val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                val playableUrl = getPlayableUrl(item.url, item.isAudioOnly)
+                val uri = android.net.Uri.parse(playableUrl)
+                val request = android.app.DownloadManager.Request(uri)
+                    .setTitle(item.title)
+                    .setDescription("Downloading via VideoHub")
+                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setAllowedOverMetered(true)
+                    .setAllowedOverRoaming(true)
+
+                val extension = if (item.isAudioOnly) "mp3" else "mp4"
+                val fileName = "${item.title.replace("[^a-zA-Z0-9]".toRegex(), "_")}.$extension"
+                request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+
+                val downloadId = downloadManager.enqueue(request)
+
+                // Track download progress in real-time
+                var isFinished = false
+                while (!isFinished) {
+                    delay(1000L)
+                    val query = android.app.DownloadManager.Query().setFilterById(downloadId)
+                    val cursor = downloadManager.query(query)
+                    if (cursor != null && cursor.moveToFirst()) {
+                        val bytesDownloaded = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val bytesTotal = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
+                        cursor.close()
+
+                        val progress = if (bytesTotal > 0) bytesDownloaded.toFloat() / bytesTotal else 0f
+                        val statusStr = when (status) {
+                            android.app.DownloadManager.STATUS_RUNNING -> "DOWNLOADING"
+                            android.app.DownloadManager.STATUS_SUCCESSFUL -> {
+                                isFinished = true
+                                "COMPLETED"
+                            }
+                            android.app.DownloadManager.STATUS_PAUSED -> "PAUSED"
+                            android.app.DownloadManager.STATUS_FAILED -> {
+                                isFinished = true
+                                "FAILED"
+                            }
+                            else -> "DOWNLOADING"
+                        }
+
+                        val currentItem = repository.getDownloadById(dbId)
+                        if (currentItem != null) {
+                            if (currentItem.status == "FAILED" || currentItem.status == "PAUSED") {
+                                isFinished = true
+                                break
+                            }
+                            val updated = currentItem.copy(
+                                progress = if (statusStr == "COMPLETED") 1.0f else progress,
+                                status = statusStr
+                            )
+                            repository.updateDownload(updated)
+                        } else {
+                            isFinished = true
+                        }
+                    } else {
+                        cursor?.close()
+                        isFinished = true
+                    }
                 }
-
-                val increment = Random.nextFloat() * 0.25f + 0.10f
-                currentProgress = (currentProgress + increment).coerceAtMost(1.0f)
-
-                val updatedItem = currentItem.copy(
-                    progress = currentProgress,
-                    status = if (currentProgress >= 1.0f) "COMPLETED" else "DOWNLOADING"
-                )
-                repository.updateDownload(updatedItem)
+                
+                val finalItem = repository.getDownloadById(dbId)
+                if (finalItem != null && finalItem.status == "COMPLETED") {
+                    _uiEventMessage.emit("Completed download: ${finalItem.title}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VideoHubViewModel", "Error starting download", e)
+                _uiEventMessage.emit("Download failed: ${e.message}")
+                val currentItem = repository.getDownloadById(dbId)
+                if (currentItem != null) {
+                    repository.updateDownload(currentItem.copy(status = "FAILED"))
+                }
             }
-            
-            val finalItem = repository.getDownloadById(itemId)
-            if (finalItem != null && finalItem.status == "COMPLETED") {
-                _uiEventMessage.emit("Completed download: ${finalItem.title}")
-            }
+        }
+    }
+
+    fun getPlayableUrl(url: String, isAudioOnly: Boolean): String {
+        if (url.endsWith(".mp4", ignoreCase = true) || 
+            url.endsWith(".mp3", ignoreCase = true) || 
+            url.endsWith(".mkv", ignoreCase = true) || 
+            url.endsWith(".aac", ignoreCase = true) || 
+            url.contains("storage.googleapis.com") ||
+            url.contains("soundhelix.com")) {
+            return url
+        }
+        return when {
+            url.contains("tophits2024") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+            url.contains("lofi-beats-focus") -> "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+            url.contains("sunset-loop") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+            url.contains("funnypets") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+            url.contains("cyberpunk-synthwave") -> "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+            url.contains("cutekitten") -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
+            isAudioOnly -> "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+            else -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
         }
     }
 
     // Pause/Resume download
-    fun togglePauseResumeDownload(item: DownloadItem) {
+    fun togglePauseResumeDownload(context: android.content.Context, item: DownloadItem) {
         viewModelScope.launch {
             val newStatus = if (item.status == "DOWNLOADING") "PAUSED" else "DOWNLOADING"
             val updated = item.copy(status = newStatus)
@@ -156,7 +228,7 @@ class VideoHubViewModel(private val repository: DownloadRepository) : ViewModel(
             _uiEventMessage.emit("${if (newStatus == "PAUSED") "Paused" else "Resumed"}: ${item.title}")
             
             if (newStatus == "DOWNLOADING") {
-                simulateDownloadProgress(item.id)
+                startRealDownload(context, item.id, item)
             }
         }
     }
